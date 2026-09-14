@@ -4,20 +4,20 @@ flowchart LR
     end
 
     subgraph S3
-        FE[Static frontend<br/>index.html / app.js]
+        FE[Static frontend<br/>index.html / app.js<br/>alias + expiry options]
     end
 
-    subgraph "HTTP API (API Gateway v2)"
+    subgraph "HTTP API (API Gateway v2)<br/>throttled: 10 req/s, burst 20"
         R1[POST /shorten]
         R2["[GET /{id}]"]
     end
 
     subgraph Lambda
-        F1[ShortenFunction<br/>validate → mint id → write]
-        F2[RedirectFunction<br/>lookup → count click → 301]
+        F1[ShortenFunction<br/>validate → alias or mint id → write]
+        F2[RedirectFunction<br/>lookup → count click → stamp last click → 301]
     end
 
-    DB[(DynamoDB<br/>shortId → targetUrl<br/>clickCount)]
+    DB[(DynamoDB<br/>shortId → targetUrl<br/>clickCount · lastClickedAt<br/>createdAt · expiresAt TTL)]
 
     U --> FE
     FE -->|fetch POST| R1

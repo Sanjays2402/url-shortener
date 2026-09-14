@@ -5,7 +5,9 @@ Unknown/expired id: 404 JSON.
 
 The click counter increments with a single conditional UpdateItem so the
 lookup and the increment are one atomic DynamoDB operation — no read/modify/
-write race under concurrent clicks.
+write race under concurrent clicks. The same operation stamps
+``lastClickedAt`` and refuses expired links (DynamoDB TTL deletes them
+eventually, but the item can linger — so expiry is enforced here too).
 
 Environment:
     TABLE_NAME: DynamoDB table with partition key ``shortId``.
@@ -17,6 +19,8 @@ import json
 import logging
 import os
 import re
+import time
+from datetime import datetime, timezone
 from typing import Any
 
 import boto3
@@ -39,32 +43,47 @@ def _get_table():
     return _table
 
 
+def _not_found(message: str) -> dict[str, Any]:
+    return {
+        "statusCode": 404,
+        "headers": {"Content-Type": "application/json"},
+        "body": json.dumps({"error": message}),
+    }
+
+
 def lambda_handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
     short_id = (event.get("pathParameters") or {}).get("id") or ""
 
     if not _ID_PATTERN.match(short_id):
-        return {
-            "statusCode": 404,
-            "headers": {"Content-Type": "application/json"},
-            "body": json.dumps({"error": "Short link not found."}),
-        }
+        return _not_found("Short link not found.")
+
+    now = int(time.time())
+    now_iso = datetime.fromtimestamp(now, tz=timezone.utc).isoformat()
 
     table = _get_table()
     try:
         response = table.update_item(
             Key={"shortId": short_id},
-            UpdateExpression="SET clickCount = if_not_exists(clickCount, :zero) + :one",
-            ConditionExpression="attribute_exists(shortId)",
-            ExpressionAttributeValues={":zero": 0, ":one": 1},
+            UpdateExpression=(
+                "SET clickCount = if_not_exists(clickCount, :zero) + :one, "
+                "lastClickedAt = :now_iso"
+            ),
+            # Expired links 404 even before DynamoDB's TTL sweeper removes them.
+            ConditionExpression=(
+                "attribute_exists(shortId) AND "
+                "(attribute_not_exists(expiresAt) OR expiresAt > :now)"
+            ),
+            ExpressionAttributeValues={
+                ":zero": 0,
+                ":one": 1,
+                ":now": now,
+                ":now_iso": now_iso,
+            },
             ReturnValues="ALL_NEW",
         )
     except ClientError as exc:
         if exc.response.get("Error", {}).get("Code") == "ConditionalCheckFailedException":
-            return {
-                "statusCode": 404,
-                "headers": {"Content-Type": "application/json"},
-                "body": json.dumps({"error": "Short link not found."}),
-            }
+            return _not_found("Short link not found or expired.")
         log.exception("DynamoDB update_item failed")
         return {
             "statusCode": 500,

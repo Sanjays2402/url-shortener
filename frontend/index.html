@@ -31,6 +31,26 @@
               <span class="btn-busy" aria-hidden="true"></span>
             </button>
           </div>
+          <div class="options-row">
+            <div class="option">
+              <label class="field-label" for="alias-input">Custom alias <span class="opt">optional</span></label>
+              <div class="alias-wrap">
+                <span class="alias-prefix" aria-hidden="true">/</span>
+                <input id="alias-input" type="text" autocomplete="off" spellcheck="false"
+                       maxlength="32" placeholder="my-link" />
+              </div>
+            </div>
+            <div class="option">
+              <label class="field-label" for="expiry-select">Expires after <span class="opt">optional</span></label>
+              <select id="expiry-select">
+                <option value="" selected>Never</option>
+                <option value="3600">1 hour</option>
+                <option value="86400">1 day</option>
+                <option value="604800">7 days</option>
+                <option value="2592000">30 days</option>
+              </select>
+            </div>
+          </div>
           <p id="form-error" class="form-error" role="alert" hidden></p>
         </form>
 

@@ -10,6 +10,8 @@ const API_BASE = ""; // <-- set this after deploy (no trailing slash)
 
 const form = document.getElementById("shorten-form");
 const input = document.getElementById("url-input");
+const aliasInput = document.getElementById("alias-input");
+const expirySelect = document.getElementById("expiry-select");
 const button = document.getElementById("shorten-btn");
 const formError = document.getElementById("form-error");
 const result = document.getElementById("result");
@@ -41,6 +43,10 @@ function showError(message) {
 
 function hideError() {
   formError.hidden = true;
+}
+
+function looksLikeAlias(value) {
+  return /^[A-Za-z0-9_-]{3,32}$/.test(value);
 }
 
 function looksLikeUrl(value) {
@@ -112,12 +118,24 @@ form.addEventListener("submit", async (event) => {
     return;
   }
 
+  const alias = aliasInput.value.trim();
+  if (alias && !looksLikeAlias(alias)) {
+    showError("Alias must be 3–32 characters: letters, numbers, - or _.");
+    aliasInput.focus();
+    return;
+  }
+
+  const expiresIn = expirySelect.value ? Number(expirySelect.value) : undefined;
+
   setBusy(true);
   try {
+    const payload = { url: raw };
+    if (alias) payload.alias = alias;
+    if (expiresIn) payload.expiresIn = expiresIn;
     const response = await fetch(`${base}/shorten`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ url: raw }),
+      body: JSON.stringify(payload),
     });
     const data = await response.json().catch(() => ({}));
     if (!response.ok) {
@@ -127,6 +145,10 @@ form.addEventListener("submit", async (event) => {
     shortLinkEl.href = data.shortUrl;
     shortLinkEl.textContent = data.shortUrl.replace(/^https?:\/\//, "");
     targetLine.textContent = `→ ${raw}`;
+    if (data.expiresAt) {
+      const label = expirySelect.options[expirySelect.selectedIndex].textContent;
+      targetLine.textContent += ` · expires in ${label.toLowerCase()}`;
+    }
     result.hidden = false;
     copyBtn.textContent = "Copy";
     copyBtn.classList.remove("copied");
@@ -163,4 +185,5 @@ clearHistory.addEventListener("click", () => {
 });
 
 input.addEventListener("input", hideError);
+aliasInput.addEventListener("input", hideError);
 renderHistory();

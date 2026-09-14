@@ -43,9 +43,15 @@ Resources:
           - OPTIONS
         AllowHeaders:
           - Content-Type
+      # Throttle abuse of the public endpoints (esp. POST /shorten):
+      # ~10 req/s sustained, bursts up to 20.
+      DefaultRouteSettings:
+        ThrottlingBurstLimit: 20
+        ThrottlingRateLimit: 10
+        DetailedMetricsEnabled: true
 
   # ------------------------------------------------------------------
-  # DynamoDB table: shortId -> targetUrl
+  # DynamoDB table: shortId -> targetUrl (+ click stats, optional TTL)
   # ------------------------------------------------------------------
   UrlTable:
     Type: AWS::DynamoDB::Table
@@ -60,6 +66,10 @@ Resources:
           KeyType: HASH
       PointInTimeRecoverySpecification:
         PointInTimeRecoveryEnabled: true
+      # Items carrying an ``expiresAt`` epoch-seconds attribute self-delete.
+      TimeToLiveSpecification:
+        AttributeName: expiresAt
+        Enabled: true
 
   # ------------------------------------------------------------------
   # POST /shorten — create a short link

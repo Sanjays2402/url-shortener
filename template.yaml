@@ -1,0 +1,151 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Transform: AWS::Serverless-2016-10-31
+Description: >
+  Serverless URL Shortener — HTTP API + two Python 3.12 Lambdas backed by
+  DynamoDB, with a static single-page frontend hosted on S3.
+
+Parameters:
+  StageName:
+    Type: String
+    Default: $default
+    Description: Name of the HTTP API stage ("$default" keeps short URLs clean, e.g. https://<api-id>.execute-api.<region>.amazonaws.com/<id>).
+  TableNamePrefix:
+    Type: String
+    Default: url-shortener
+    AllowedPattern: "^[a-zA-Z0-9.-]{1,64}$"
+    Description: Prefix used for the DynamoDB table name.
+
+Globals:
+  Function:
+    Runtime: python3.12
+    Architectures:
+      - arm64
+    Timeout: 10
+    MemorySize: 128
+    Environment:
+      Variables:
+        TABLE_NAME: !Ref UrlTable
+
+Resources:
+  # ------------------------------------------------------------------
+  # HTTP API shared by both Lambdas
+  # ------------------------------------------------------------------
+  UrlHttpApi:
+    Type: AWS::Serverless::HttpApi
+    Properties:
+      StageName: !Ref StageName
+      CorsConfiguration:
+        AllowOrigins:
+          - "*"
+        AllowMethods:
+          - GET
+          - POST
+          - OPTIONS
+        AllowHeaders:
+          - Content-Type
+
+  # ------------------------------------------------------------------
+  # DynamoDB table: shortId -> targetUrl
+  # ------------------------------------------------------------------
+  UrlTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub "${TableNamePrefix}-links"
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: shortId
+          AttributeType: S
+      KeySchema:
+        - AttributeName: shortId
+          KeyType: HASH
+      PointInTimeRecoverySpecification:
+        PointInTimeRecoveryEnabled: true
+
+  # ------------------------------------------------------------------
+  # POST /shorten — create a short link
+  # ------------------------------------------------------------------
+  ShortenFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub "${TableNamePrefix}-shorten"
+      CodeUri: src/shorten/
+      Handler: app.lambda_handler
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref UrlTable
+      Events:
+        ShortenApi:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref UrlHttpApi
+            Path: /shorten
+            Method: POST
+
+  # ------------------------------------------------------------------
+  # GET /{id} — 301 redirect + atomic click counter
+  # ------------------------------------------------------------------
+  RedirectFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub "${TableNamePrefix}-redirect"
+      CodeUri: src/redirect/
+      Handler: app.lambda_handler
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref UrlTable
+      Events:
+        RedirectApi:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref UrlHttpApi
+            Path: /{id}
+            Method: GET
+
+  # ------------------------------------------------------------------
+  # S3 bucket hosting the static frontend (index.html etc.)
+  # ------------------------------------------------------------------
+  FrontendBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub "${TableNamePrefix}-frontend-${AWS::AccountId}"
+      OwnershipControls:
+        Rules:
+          - ObjectOwnership: BucketOwnerPreferred
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: false
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: false
+      WebsiteConfiguration:
+        IndexDocument: index.html
+        ErrorDocument: index.html
+
+  FrontendBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref FrontendBucket
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Sid: PublicReadForWebsite
+            Effect: Allow
+            Principal: "*"
+            Action: s3:GetObject
+            Resource: !Sub "${FrontendBucket.Arn}/*"
+
+Outputs:
+  ApiEndpoint:
+    Description: Base URL of the URL Shortener HTTP API
+    Value: !Sub "https://${UrlHttpApi}.execute-api.${AWS::Region}.amazonaws.com"
+  ShortenEndpoint:
+    Description: Full POST endpoint for creating short links
+    Value: !Sub "https://${UrlHttpApi}.execute-api.${AWS::Region}.amazonaws.com/shorten"
+  TableName:
+    Description: DynamoDB table holding shortId -> targetUrl mappings
+    Value: !Ref UrlTable
+  FrontendBucketName:
+    Description: S3 bucket hosting the frontend; upload frontend/* to it
+    Value: !Ref FrontendBucket
+  WebsiteURL:
+    Description: Public website URL of the frontend
+    Value: !GetAtt FrontendBucket.WebsiteURL

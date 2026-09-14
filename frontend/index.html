@@ -1,0 +1,61 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>minify — serverless url shortener</title>
+  <meta name="description" content="Shorten long URLs with a fully serverless stack: HTTP API, Lambda, DynamoDB." />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <div class="page">
+    <header class="masthead">
+      <div class="brand"><span class="mark">⤳</span><span class="word">minify</span></div>
+      <div class="stack">api gateway · lambda · dynamodb</div>
+    </header>
+
+    <main>
+      <h1 class="headline">Give it a long link.<br /><span class="soft">Get a short one.</span></h1>
+
+      <section class="card" aria-label="shorten a url">
+        <form id="shorten-form" novalidate>
+          <label class="field-label" for="url-input">Destination URL</label>
+          <div class="input-row">
+            <input id="url-input" type="url" inputmode="url" autocomplete="off"
+                   spellcheck="false" placeholder="https://example.com/a/very/long/path…" />
+            <button id="shorten-btn" type="submit">
+              <span class="btn-label">Shorten</span>
+              <span class="btn-busy" aria-hidden="true"></span>
+            </button>
+          </div>
+          <p id="form-error" class="form-error" role="alert" hidden></p>
+        </form>
+
+        <div id="result" class="result" hidden>
+          <div class="result-top">
+            <span class="result-kicker">Your short link</span>
+            <button id="copy-btn" class="copy-btn" type="button">Copy</button>
+          </div>
+          <a id="short-link" class="short-link" href="#" target="_blank" rel="noopener"></a>
+          <p id="target-line" class="target-line"></p>
+        </div>
+      </section>
+
+      <section id="history-section" class="history" hidden aria-label="recent links">
+        <h2 class="history-title">Recent</h2>
+        <ul id="history-list" class="history-list"></ul>
+        <button id="clear-history" class="text-btn" type="button">Clear history</button>
+      </section>
+    </main>
+
+    <footer class="foot">
+      <span>serverless on aws · no servers were harmed</span>
+    </footer>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>

@@ -112,18 +112,3 @@ curl -s -o /dev/null -w "%{http_code} -> %{redirect_url}\n" "$API/<shortId>"
 - **QR codes** — render a QR for each short link in the frontend.
 - **Auth** — Cognito authorizer so only you can create links (redirects stay public).
 
-## Portfolio deliverables checklist
-
-Capture these after deploying — they're the artifacts that make this a
-portfolio piece:
-
-- [ ] Screenshot: DynamoDB console showing a `shortId` item with `targetUrl` and `clickCount`.
-- [ ] Screenshot: API Gateway HTTP API routes (`POST /shorten`, `GET /{id}`).
-- [ ] Screenshot/terminal capture: `curl` creating a link and following the 301.
-- [ ] Short demo GIF: paste URL → short link appears → copy → visit redirects.
-- [ ] This repo pushed to GitHub with this README (architecture diagram, deploy
-      steps, cost notes, tests).
-- [ ] LinkedIn post: one-liner + screenshot of the frontend + repo link.
-- [ ] Resume bullet, e.g. *"Built a serverless URL shortener (API Gateway,
-      Lambda, DynamoDB) with atomic click analytics and a static S3 frontend —
-      fully within AWS Free Tier."*

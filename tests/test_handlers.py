@@ -43,6 +43,7 @@ def _load_module(name, path):
 
 shorten_app = _load_module("shorten_app", ROOT / "src" / "shorten" / "app.py")
 redirect_app = _load_module("redirect_app", ROOT / "src" / "redirect" / "app.py")
+stats_app = _load_module("stats_app", ROOT / "src" / "stats" / "app.py")
 
 
 @pytest.fixture
@@ -50,6 +51,7 @@ def mock_table(monkeypatch):
     table = MagicMock()
     monkeypatch.setattr(shorten_app, "_table", table)
     monkeypatch.setattr(redirect_app, "_table", table)
+    monkeypatch.setattr(stats_app, "_table", table)
     monkeypatch.setenv("TABLE_NAME", "test-links")
     return table
 
@@ -341,6 +343,92 @@ def test_redirect_expired_link_404s(mock_table):
 
 
 # ----------------------------------------------------------------------
+# GET /stats/{id}
+# ----------------------------------------------------------------------
+def test_stats_happy_path(mock_table):
+    mock_table.get_item.return_value = {
+        "Item": {
+            "targetUrl": "https://example.com/long",
+            "clickCount": 42,
+            "createdAt": "2026-09-15T12:00:00+00:00",
+            "lastClickedAt": "2026-09-15T14:30:00+00:00",
+        }
+    }
+    resp = stats_app.lambda_handler({"pathParameters": {"id": "aB3xK9q"}}, None)
+
+    assert resp["statusCode"] == 200
+    payload = json.loads(resp["body"])
+    assert payload["shortId"] == "aB3xK9q"
+    assert payload["targetUrl"] == "https://example.com/long"
+    assert payload["clickCount"] == 42
+    assert payload["lastClickedAt"] == "2026-09-15T14:30:00+00:00"
+    assert "expiresAt" not in payload  # absent when the link never expires
+
+    kwargs = mock_table.get_item.call_args.kwargs
+    assert kwargs["Key"] == {"shortId": "aB3xK9q"}
+    # stats must never mutate the item — a get_item, not an update_item
+    assert "ProjectionExpression" in kwargs
+
+
+def test_stats_link_never_clicked(mock_table):
+    mock_table.get_item.return_value = {
+        "Item": {"targetUrl": "https://example.com/x", "createdAt": "2026-09-15"}
+    }
+    resp = stats_app.lambda_handler({"pathParameters": {"id": "abc1234"}}, None)
+
+    payload = json.loads(resp["body"])
+    assert resp["statusCode"] == 200
+    assert payload["clickCount"] == 0
+    assert payload["lastClickedAt"] is None
+
+
+def test_stats_includes_expiry(mock_table):
+    expires = __import__("time").time() + 3600
+    mock_table.get_item.return_value = {
+        "Item": {"targetUrl": "https://example.com/x", "expiresAt": int(expires)}
+    }
+    resp = stats_app.lambda_handler({"pathParameters": {"id": "abc1234"}}, None)
+
+    assert resp["statusCode"] == 200
+    assert json.loads(resp["body"])["expiresAt"] == int(expires)
+
+
+def test_stats_unknown_id_404(mock_table):
+    mock_table.get_item.return_value = {}
+    resp = stats_app.lambda_handler({"pathParameters": {"id": "nope123"}}, None)
+    assert resp["statusCode"] == 404
+    mock_table.update_item.assert_not_called()  # read-only: no click counted
+
+
+def test_stats_expired_link_404s(mock_table):
+    mock_table.get_item.return_value = {
+        "Item": {
+            "targetUrl": "https://example.com/old",
+            "expiresAt": int(__import__("time").time()) - 10,
+        }
+    }
+    resp = stats_app.lambda_handler({"pathParameters": {"id": "oldlink1"}}, None)
+
+    assert resp["statusCode"] == 404
+    assert "expired" in json.loads(resp["body"])["error"]
+
+
+@pytest.mark.parametrize("bad_id", ["", "../etc", "a b", "x" * 33, None])
+def test_stats_rejects_malformed_ids(mock_table, bad_id):
+    resp = stats_app.lambda_handler({"pathParameters": {"id": bad_id}}, None)
+    assert resp["statusCode"] == 404
+    mock_table.get_item.assert_not_called()
+
+
+def test_stats_returns_500_on_dynamodb_error(mock_table):
+    mock_table.get_item.side_effect = ClientError(
+        {"Error": {"Code": "InternalServerError", "Message": "boom"}}, "GetItem"
+    )
+    resp = stats_app.lambda_handler({"pathParameters": {"id": "aB3xK9q"}}, None)
+    assert resp["statusCode"] == 500
+
+
+# ----------------------------------------------------------------------
 # Template smoke check
 # ----------------------------------------------------------------------
 def test_template_parses_and_has_required_resources():
@@ -351,9 +439,19 @@ def test_template_parses_and_has_required_resources():
     resources = template["Resources"]
     assert resources["ShortenFunction"]["Type"] == "AWS::Serverless::Function"
     assert resources["RedirectFunction"]["Type"] == "AWS::Serverless::Function"
+    assert resources["StatsFunction"]["Type"] == "AWS::Serverless::Function"
     assert resources["UrlTable"]["Type"] == "AWS::DynamoDB::Table"
     assert resources["UrlHttpApi"]["Type"] == "AWS::Serverless::HttpApi"
     assert resources["FrontendBucket"]["Type"] == "AWS::S3::Bucket"
+
+    stats = resources["StatsFunction"]["Properties"]
+    assert stats["Handler"] == "app.lambda_handler"
+    stats_events = list(stats["Events"].values())[0]["Properties"]
+    assert stats_events["Path"] == "/stats/{id}"
+    assert stats_events["Method"] == "GET"
+    # stats is read-only: least-privilege read policy, not full CRUD
+    policies = stats["Policies"]
+    assert any("DynamoDBReadPolicy" in p for p in policies)
 
     handlers = {
         resources["ShortenFunction"]["Properties"]["Handler"],

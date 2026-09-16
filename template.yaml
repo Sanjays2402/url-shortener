@@ -1,7 +1,7 @@
 AWSTemplateFormatVersion: "2010-09-09"
 Transform: AWS::Serverless-2016-10-31
 Description: >
-  Serverless URL Shortener — HTTP API + two Python 3.12 Lambdas backed by
+  Serverless URL Shortener — HTTP API + three Python 3.12 Lambdas backed by
   DynamoDB, with a static single-page frontend hosted on S3.
 
 Parameters:
@@ -109,6 +109,29 @@ Resources:
           Properties:
             ApiId: !Ref UrlHttpApi
             Path: /{id}
+            Method: GET
+
+  # ------------------------------------------------------------------
+  # GET /stats/{id} — read-only click statistics (never increments the counter)
+  #
+  # Literal route segments win over the /{id} parameter, so /stats/<id>
+  # resolves here while /<id> still reaches the redirect handler.
+  # ------------------------------------------------------------------
+  StatsFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub "${TableNamePrefix}-stats"
+      CodeUri: src/stats/
+      Handler: app.lambda_handler
+      Policies:
+        - DynamoDBReadPolicy:
+            TableName: !Ref UrlTable
+      Events:
+        StatsApi:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref UrlHttpApi
+            Path: /stats/{id}
             Method: GET
 
   # ------------------------------------------------------------------

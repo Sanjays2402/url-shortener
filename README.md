@@ -27,12 +27,19 @@ and last-clicked timestamp. No servers, no containers, no maintenance.
    `lastClickedAt`, then returns a `301` with the target in the `Location`
    header. Unknown or expired ids get a `404` (expiry is enforced at read
    time, since DynamoDB's TTL sweeper can lag).
-3. **Frontend** — static files in `frontend/` served from an S3 website bucket.
+3. **Stats** — `GET /stats/{id}` returns read-only click statistics for a link:
+   `targetUrl`, `clickCount`, `createdAt`, `lastClickedAt` (null until the first
+   click), and `expiresAt` when the link has an expiry. It is a plain DynamoDB
+   `get_item` — it never increments the counter — and it 404s unknown or
+   expired ids, just like the redirect handler. The literal `/stats/{id}` route
+   takes precedence over `/{id}`, which is why `stats` is a reserved alias.
+   Example: `curl -s "$API/stats/aB3xK9q"`.
+4. **Frontend** — static files in `frontend/` served from an S3 website bucket.
    The app calls the API's `/shorten` endpoint (set `API_BASE` in `app.js` after
    deploying), offers optional custom-alias and expiry-picker controls, a
    copy-to-clipboard button, and keeps a small recent-links history in
    `localStorage`.
-4. **Throttling** — the HTTP API's default route settings cap traffic at
+5. **Throttling** — the HTTP API's default route settings cap traffic at
    10 req/s with a burst of 20, with detailed metrics enabled, so the public
    `/shorten` endpoint can't be abused into a DynamoDB bill.
 
@@ -108,7 +115,6 @@ curl -s -o /dev/null -w "%{http_code} -> %{redirect_url}\n" "$API/<shortId>"
 
 ## Enhancement ideas
 
-- **Per-link stats page** — expose `clickCount`/`lastClickedAt`/`createdAt` via `GET /stats/{id}`.
 - **QR codes** — render a QR for each short link in the frontend.
 - **Auth** — Cognito authorizer so only you can create links (redirects stay public).
 
